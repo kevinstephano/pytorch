@@ -208,7 +208,7 @@ public:
    * need to be observed with RecordFunction.
    */
   inline bool shouldRecord(DispatchKey dispatch_key) const {
-    return dispatch_key != DispatchKey::BackendSelect;
+    return !c10::impl::always_included.has(dispatch_key);
   }
 
 private:
