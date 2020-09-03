@@ -43,6 +43,7 @@ from torch.testing._internal.common_methods_invocations import (method_tests,
                                                                 EXCLUDE_GRADGRADCHECK_BY_TEST_NAME,
                                                                 exclude_tensor_method,
                                                                 mask_not_all_zeros,
+                                                                EXCLUDE_METHOD_FOR_ATTRIBUTES,
                                                                 S)
 from torch.testing._internal.common_device_type import (instantiate_device_type_tests, skipCUDAIfRocm,
                                                         onlyCPU, onlyCUDA, dtypes, dtypesIfCUDA,
@@ -4648,18 +4649,21 @@ def run_functional_checks(test_case, test_name, name, apply_fn, run_grad_checks,
 # the tests for these ops which do not have 'complex' in variant should not run for complex
 # and only run for floating point
 
-separate_complex_tests = ['log', 'log10', 'log1p', 'log2', 'reciprocal', 'tan']
+# TODO: add the commented tests back after updating the formula based on tensorflow definition - @anjali411
+separate_complex_tests = ['view_as_real', 'real', 'imag']  # ['log', 'log10', 'log1p', 'log2', 'reciprocal', 'tan']
 
 # NOTE: Some non-holomorphic are separately tested in TestAutogradComplex until gradcheck works properly
 # for non-holomorphic functions
 
 # allow list for complex
-complex_list = ['t', 'view', 'reshape', 'reshape_as', 'view_as', 'zero_', 'clone',
-                'tril', 'triu', 'fill_', 'eq_', 'ne_', 'permute', 'squeeze', 'unsqueeze',
-                'chunk', 'split', 'split_with_sizes', 'resize', 'resize_as', 'sin', 'cos',
-                '__rmul__', '__rdiv__', 'sum', 'transpose', 'round', 'add', 'roll',
-                '__radd__', 'repeat', 'expand', 'mul', 'tanh', 'flip', 'fliplr', 'flipud',
-                'rot90'] + separate_complex_tests
+complex_list = ['t', 'view', 'reshape', 'reshape_as', 'view_as', 'roll', 'clone',
+                'repeat', 'expand', 'flip', 'fliplr', 'flipud', 'rot90', 'transpose',
+                'permute', 'squeeze', 'unsqueeze', 'resize', 'resize_as', 'tril', 'triu',
+                'chunk', 'split', 'split_with_sizes', 'repeat', 'expand', 'zero_', 'round',
+                'eq_', 'ne_', 'add', '__radd__', 'sum', 'conj'] + separate_complex_tests
+
+# TODO: add the commented tests back after updating the formula based on tensorflow definition - @anjali411
+# complex_list += ['fill_', 'sin', 'cos', '__rmul__', '__rdiv__', 'mul', 'tanh']
 
 def add_test(
         name,
@@ -4753,7 +4757,7 @@ def add_test(
                     if not is_inplace:
                         self_variable = create_input((self_size,), requires_grad=True, dtype=dtype)[0][0]
                         args_variable, kwargs_variable = create_input(args, requires_grad=False, call_kwargs=kwargs, dtype=dtype)
-                        if hasattr(self_variable, name):
+                        if hasattr(self_variable, name) and name not in EXCLUDE_METHOD_FOR_ATTRIBUTES:
                             output_variable = getattr(self_variable, name)(*args_variable, **kwargs_variable)
                         else:
                             self_and_args_variable = (self_variable,) + args_variable
@@ -4831,104 +4835,80 @@ def add_test(
 
             setattr(TestAutogradDeviceType, test_name, do_test)
 
-class TestAutogradComplex(TestCase):
-    # remove this test after gradcheck support is added for non-holomorphic functions
-    def test_real(self):
-        x = torch.randn(3, 4, 5, dtype=torch.cdouble, requires_grad=True)
-        x.real.sum().backward()
-        self.assertEqual(x.grad, torch.ones_like(x))
+# class TestAutogradComplex(TestCase):
+#     def test_view_func_for_complex_views(self):
+#         # case 1: both parent and child have view_func
+#         x = torch.randn(2, 2, 2, dtype=torch.double, requires_grad=True)
+#         y = x.detach().requires_grad_(True)
 
-    # remove this test after gradcheck support is added for non-holomorphic functions
-    def test_imag(self):
-        x = torch.randn(3, 4, 5, dtype=torch.cdouble, requires_grad=True)
-        x.imag.sum().backward()
-        self.assertEqual(x.grad, -1j * torch.ones_like(x))
+#         x0 = x.clone()
+#         x1 = torch.view_as_complex(x0)
+#         x2 = torch.view_as_real(x1)
+#         x2.mul_(2)
+#         x2.sum().backward()
 
-    # remove this test after gradcheck support is added for non-holomorphic functions
-    def test_view_as_real(self):
-        x = torch.randn(10, dtype=torch.cdouble, requires_grad=True)
-        torch.view_as_real(x).sum().backward()
-        self.assertEqual(x.grad, torch.full_like(x, 1 - 1j))
+#         y0 = y.clone()
+#         y0.mul_(2)
+#         y0.sum().backward()
 
-    # remove this test after gradcheck support is added for non-holomorphic functions
-    def test_view_as_complex(self):
-        x = torch.randn(10, 2, dtype=torch.double, requires_grad=True)
-        torch.view_as_complex(x).sum().backward()
-        self.assertEqual(x.grad, torch.tensor([1, 0], dtype=torch.double).expand_as(x))
+#         self.assertEqual(x.grad, y.grad)
 
-    def test_view_func_for_complex_views(self):
-        # case 1: both parent and child have view_func
-        x = torch.randn(2, 2, 2, dtype=torch.double, requires_grad=True)
-        y = x.detach().requires_grad_(True)
+#         # case 2: parent has view_func but child does not
+#         x = torch.randn(2, 2, 2, dtype=torch.double, requires_grad=True)
+#         y = x.detach().requires_grad_(True)
 
-        x0 = x.clone()
-        x1 = torch.view_as_complex(x0)
-        x2 = torch.view_as_real(x1)
-        x2.mul_(2)
-        x2.sum().backward()
+#         def fn(a):
+#             b = a.clone()
+#             b1 = torch.view_as_complex(b)
+#             b2 = b1.reshape(b1.numel())
+#             return b2
 
-        y0 = y.clone()
-        y0.mul_(2)
-        y0.sum().backward()
+#         x0 = fn(x)
+#         x0.mul_(2)
+#         x0.sum().backward()
 
-        self.assertEqual(x.grad, y.grad)
+#         y0 = fn(y)
+#         y1 = y0.mul(2)
+#         y1.sum().backward()
 
-        # case 2: parent has view_func but child does not
-        x = torch.randn(2, 2, 2, dtype=torch.double, requires_grad=True)
-        y = x.detach().requires_grad_(True)
+#         self.assertEqual(x.grad, y.grad)
 
-        def fn(a):
-            b = a.clone()
-            b1 = torch.view_as_complex(b)
-            b2 = b1.reshape(b1.numel())
-            return b2
+#         # case 3: parent does not have a view_func but child does
+#         x = torch.randn(10, dtype=torch.cdouble, requires_grad=True)
+#         y = x.detach().requires_grad_(True)
 
-        x0 = fn(x)
-        x0.mul_(2)
-        x0.sum().backward()
+#         def fn(a, dim0_size=5):
+#             b = a.clone()
+#             b1 = b.reshape(dim0_size, 2)
+#             b2 = torch.view_as_real(b1)
+#             return b2
 
-        y0 = fn(y)
-        y1 = y0.mul(2)
-        y1.sum().backward()
+#         x0 = fn(x)
+#         x0.mul_(2)
+#         x0.sum().backward()
 
-        self.assertEqual(x.grad, y.grad)
+#         y0 = fn(y)
+#         y1 = y0.mul(2)
+#         y1.sum().backward()
 
-        # case 3: parent does not have a view_func but child does
-        x = torch.randn(10, dtype=torch.cdouble, requires_grad=True)
-        y = x.detach().requires_grad_(True)
+#         self.assertEqual(x.grad, y.grad)
 
-        def fn(a, dim0_size=5):
-            b = a.clone()
-            b1 = b.reshape(dim0_size, 2)
-            b2 = torch.view_as_real(b1)
-            return b2
+#     def as_identity(self):
+#         # view_as_real and view_as_complex behavior should be like an identity
+#         def func(z):
+#             z_ = torch.view_as_complex(z)
+#             z_select = torch.select(z_, z_.dim() - 1, 0)
+#             z_select_real = torch.view_as_real(z_select)
+#             return z_select_real.sum()
 
-        x0 = fn(x)
-        x0.mul_(2)
-        x0.sum().backward()
+#         z = torch.randn(10, 2, 2, dtype=torch.double, requires_grad=True)
+#         gradcheck(func, [z])
+#         func(z).backward()
 
-        y0 = fn(y)
-        y1 = y0.mul(2)
-        y1.sum().backward()
+#         z1 = z.clone().detach().requires_grad_(True)
+#         torch.select(z1, z1.dim() - 2, 0).sum().backward()
 
-        self.assertEqual(x.grad, y.grad)
-
-    def as_identity(self):
-        # view_as_real and view_as_complex behavior should be like an identity
-        def func(z):
-            z_ = torch.view_as_complex(z)
-            z_select = torch.select(z_, z_.dim() - 1, 0)
-            z_select_real = torch.view_as_real(z_select)
-            return z_select_real.sum()
-
-        z = torch.randn(10, 2, 2, dtype=torch.double, requires_grad=True)
-        gradcheck(func, [z])
-        func(z).backward()
-
-        z1 = z.clone().detach().requires_grad_(True)
-        torch.select(z1, z1.dim() - 2, 0).sum().backward()
-
-        self.assertEqual(z.grad, z1.grad)
+#         self.assertEqual(z.grad, z1.grad)
 
 class TestAutogradFunctional(TestCase):
     def _assert_same_struct(self, res, base):
