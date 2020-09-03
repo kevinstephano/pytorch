@@ -306,6 +306,19 @@ void ProcessGroupNCCL::WorkNCCL::checkAndThrowException() {
   }
 }
 
+bool ProcessGroupNCCL::WorkNCCL::isCompletedAndThrowException() {
+  checkAndSetException();
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (exception_ || finishedGPUExecutionInternal()) {
+    completed_ = true;
+    if (exception_) {
+      std::rethrow_exception(exception_);
+    }
+    return true;
+  }
+  return false;
+}
+
 void ProcessGroupNCCL::WorkNCCL::handleNCCLGuard() {
   std::lock_guard<std::mutex> lock(mutex_);
   completed_ = true;
@@ -634,10 +647,9 @@ void ProcessGroupNCCL::workCleanupLoop() {
     for (auto it = workList_.begin(); it != workList_.end();
          /* no increment*/) {
       auto& work = *it;
-      if (work->isCompleted()) {
-        // Handle Exceptions on failed GPU operations and remove completed
-        // workNCCL objects from work vector.
-        work->handleNCCLGuard();
+      // Handle Exceptions on failed GPU operations and remove completed
+      // workNCCL objects from work vector.
+      if (work->isCompletedAndThrowException()) {
         it = workList_.erase(it);
       } else {
         // Increment the iterator if the current WorkNCCL object is not
